@@ -12,11 +12,33 @@ if (typeof window !== "undefined") {
   });
 }
 
-const MUSIC_OPTIONS = ["swing", "jazz", "blues", "funk", "latin"];
-const DANCE_OPTIONS = ["lindy hop", "blues", "salsa", "bachata"];
-const EVENT_TYPE_OPTIONS = ["social", "class", "festival", "practica"];
+const MUSIC_OPTIONS = ["salsa", "timba", "son", "bachata", "kizomba", "merengue", "zouk"];
+const DANCE_OPTIONS = ["casino", "salsa on1", "salsa on2", "bachata", "zouk"];
+const EVENT_TYPE_OPTIONS = ["social", "event", "festival"];
 const PRICE_OPTIONS = ["free", "paid"];
-const FLOOR_OPTIONS = ["rough", "normal", "slippery"];
+/** Surface / how it dances (floor type) */
+const FLOOR_TYPE_OPTIONS = ["rough", "normal", "slippery"];
+
+const FLOOR_SIZE_LEVELS = [
+  { id: "small", label: "Small (bar)", rank: 1 },
+  { id: "medium", label: "Medium (club)", rank: 2 },
+  { id: "large", label: "Large (hall)", rank: 3 }
+];
+
+const DENSITY_LEVELS = [
+  { id: "empty", label: "Empty", rank: 0 },
+  { id: "sparse", label: "Sparse", rank: 1 },
+  { id: "packed", label: "Packed", rank: 2 },
+  { id: "overcrowded", label: "Overcrowded", rank: 3 }
+];
+
+function floorSizeRank(id) {
+  return FLOOR_SIZE_LEVELS.find((x) => x.id === id)?.rank ?? 0;
+}
+
+function densityRank(id) {
+  return DENSITY_LEVELS.find((x) => x.id === id)?.rank ?? 0;
+}
 
 const DEFAULT_FORM = {
   name: "",
@@ -25,9 +47,11 @@ const DEFAULT_FORM = {
   type: "social",
   price: "free",
   floor: "normal",
+  floorSize: "medium",
+  density: "sparse",
   music: [],
   dance: [],
-  people: 50,
+  musicShared: false,
   url: "",
   notes: "",
   date: "",
@@ -37,14 +61,28 @@ const DEFAULT_FORM = {
 
 function mergeFormFromPin(pin) {
   if (!pin) return { ...DEFAULT_FORM };
-  const { hours: _legacyHours, music, dance, hoursStart, hoursEnd, ...rest } = pin;
+  const {
+    hours: _legacyHours,
+    people: _legacyPeople,
+    music,
+    dance,
+    hoursStart,
+    hoursEnd,
+    floorSize,
+    density,
+    musicShared,
+    ...rest
+  } = pin;
   return {
     ...DEFAULT_FORM,
     ...rest,
     music: music ?? [],
     dance: dance ?? [],
     hoursStart: hoursStart ?? "",
-    hoursEnd: hoursEnd ?? ""
+    hoursEnd: hoursEnd ?? "",
+    floorSize: floorSize || "medium",
+    density: density || "sparse",
+    musicShared: Boolean(musicShared)
   };
 }
 
@@ -81,12 +119,13 @@ function FlyToPin({ focus }) {
   return null;
 }
 
-function AddPinHandler({ onAdd }) {
+function AddPinHandler({ onMapClick }) {
   useMapEvents({
     click: async (e) => {
       const { lat, lng } = e.latlng;
+      onMapClick({ phase: "start", lat, lng });
       const geo = await reverseGeocode(lat, lng);
-      onAdd({ lat, lng, geo });
+      onMapClick({ phase: "done", lat, lng, geo });
     }
   });
   return null;
@@ -121,7 +160,9 @@ const FILTER_DEFAULTS = {
   dance: [],
   type: "",
   price: "",
-  floor: ""
+  floor: "",
+  floorSizeMin: "",
+  densityMax: ""
 };
 
 function filterPins(pins, f) {
@@ -139,6 +180,14 @@ function filterPins(pins, f) {
     if (f.type && pin.type !== f.type) return false;
     if (f.price && pin.price !== f.price) return false;
     if (f.floor && pin.floor !== f.floor) return false;
+    if (f.floorSizeMin !== "" && f.floorSizeMin != null) {
+      const minR = Number(f.floorSizeMin);
+      if (!Number.isNaN(minR) && floorSizeRank(pin.floorSize || "medium") < minR) return false;
+    }
+    if (f.densityMax !== "" && f.densityMax != null) {
+      const maxR = Number(f.densityMax);
+      if (!Number.isNaN(maxR) && densityRank(pin.density || "sparse") > maxR) return false;
+    }
     return true;
   });
 }
@@ -153,6 +202,7 @@ export default function App() {
   const [filters, setFilters] = useState(FILTER_DEFAULTS);
   const [mapFocus, setMapFocus] = useState(null);
   const [showTimeline, setShowTimeline] = useState(false);
+  const [newPinGeoLoading, setNewPinGeoLoading] = useState(false);
 
   const filteredPins = useMemo(() => filterPins(pins, filters), [pins, filters]);
 
@@ -169,9 +219,19 @@ export default function App() {
     }));
   }
 
-  function handleAdd({ lat, lng, geo }) {
-    setForm({ ...DEFAULT_FORM, city: geo.city || "" });
-    setPendingPin({ lat, lng, geo });
+  function handleMapClickForNewPin(payload) {
+    if (payload.phase === "start") {
+      setForm({ ...DEFAULT_FORM });
+      setPendingPin({ lat: payload.lat, lng: payload.lng, geo: null });
+      setNewPinGeoLoading(true);
+      return;
+    }
+    setNewPinGeoLoading(false);
+    setPendingPin((prev) =>
+      prev && prev.lat === payload.lat && prev.lng === payload.lng
+        ? { ...prev, geo: payload.geo }
+        : prev
+    );
   }
 
   function toggleMulti(field, value) {
@@ -184,17 +244,19 @@ export default function App() {
   }
 
   function savePin() {
+    const g = pendingPin.geo || {};
     const newPin = {
       id: Date.now(),
       position: [pendingPin.lat, pendingPin.lng],
       ...form,
-      city: form.city || pendingPin.geo.city || "",
-      country: pendingPin.geo.country,
-      street: pendingPin.geo.street,
-      address: pendingPin.geo.address
+      city: g.city || "",
+      country: g.country || "",
+      street: g.street || "",
+      address: g.address || ""
     };
     setPins(p => [...p, newPin]);
     setPendingPin(null);
+    setNewPinGeoLoading(false);
   }
 
   function updatePin() {
@@ -280,7 +342,7 @@ export default function App() {
               </div>
             </div>
 
-            <div className="mt-3 grid grid-cols-3 gap-2">
+            <div className="mt-3 grid grid-cols-2 gap-2">
               <div>
                 <label className="text-xs font-medium text-slate-500">Type</label>
                 <select
@@ -312,16 +374,46 @@ export default function App() {
                 </select>
               </div>
               <div>
-                <label className="text-xs font-medium text-slate-500">Floor</label>
+                <label className="text-xs font-medium text-slate-500">Floor type</label>
                 <select
                   className="mt-1 w-full rounded-md border border-slate-200 px-1 py-1 text-xs"
                   value={filters.floor}
                   onChange={(e) => setFilterField("floor", e.target.value)}
                 >
                   <option value="">All</option>
-                  {FLOOR_OPTIONS.map((fl) => (
+                  {FLOOR_TYPE_OPTIONS.map((fl) => (
                     <option key={fl} value={fl}>
                       {fl}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-500">Floor size ≥ (rank)</label>
+                <select
+                  className="mt-1 w-full rounded-md border border-slate-200 px-1 py-1 text-xs"
+                  value={filters.floorSizeMin}
+                  onChange={(e) => setFilterField("floorSizeMin", e.target.value)}
+                >
+                  <option value="">Any</option>
+                  {FLOOR_SIZE_LEVELS.map((lvl) => (
+                    <option key={lvl.id} value={String(lvl.rank)}>
+                      {lvl.rank}+ ({lvl.label})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="col-span-2">
+                <label className="text-xs font-medium text-slate-500">Density ≤ (rank)</label>
+                <select
+                  className="mt-1 w-full rounded-md border border-slate-200 px-1 py-1 text-xs"
+                  value={filters.densityMax}
+                  onChange={(e) => setFilterField("densityMax", e.target.value)}
+                >
+                  <option value="">Any</option>
+                  {DENSITY_LEVELS.map((lvl) => (
+                    <option key={lvl.id} value={String(lvl.rank)}>
+                      ≤{lvl.rank} ({lvl.label})
                     </option>
                   ))}
                 </select>
@@ -385,22 +477,13 @@ export default function App() {
             </ul>
           </div>
         </aside>
-      ) : (
-        <button
-          type="button"
-          className="absolute left-0 top-20 z-[1000] rounded-r-lg border border-l-0 border-slate-200 bg-white/95 px-2 py-3 text-xs font-medium text-slate-700 shadow-sm backdrop-blur-sm hover:bg-slate-50"
-          onClick={() => setSidebarOpen(true)}
-          aria-label="Open events sidebar"
-        >
-          Events
-        </button>
-      )}
+      ) : null}
 
       <div className="relative min-h-0 min-w-0 flex-1">
         {/* TOP BUTTONS */}
         <div
           className="absolute z-[1000] flex gap-2"
-          style={{ top: 20, left: sidebarOpen ? 12 : 56 }}
+          style={{ top: 20, left: 12 }}
         >
           <button
             type="button"
@@ -408,6 +491,14 @@ export default function App() {
             onClick={() => setShowTimeline((v) => !v)}
           >
             Timeline
+          </button>
+          <button
+            type="button"
+            className="rounded-md border border-slate-200 bg-white/90 px-3 py-1.5 text-sm shadow-sm backdrop-blur-sm hover:bg-white"
+            onClick={() => setSidebarOpen((v) => !v)}
+            aria-expanded={sidebarOpen}
+          >
+            Filter
           </button>
         </div>
 
@@ -423,7 +514,7 @@ export default function App() {
         >
           <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
           <FlyToPin focus={mapFocus} />
-          <AddPinHandler onAdd={handleAdd} />
+          <AddPinHandler onMapClick={handleMapClickForNewPin} />
 
           {pins.map((p) => (
             <Marker
@@ -441,14 +532,15 @@ export default function App() {
 
       {/* INFO PANEL */}
       {selectedPin && (
-        <div style={{ position:"absolute", top:20, right:20, backdropFilter:"blur(12px)", background:"rgba(255,255,255,0.8)", padding:16, borderRadius:16, zIndex:1000, maxWidth:340 }}>
+        <div style={{ position:"absolute", top:20, right:20, backdropFilter:"blur(12px)", background:"rgba(255,255,255,0.8)", padding:16, borderRadius:16, zIndex:1000, maxWidth:360 }}>
           <button onClick={()=>setEditing(!editing)}>{editing ? "Cancel" : "Edit"}</button>
 
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginTop:10 }}>
+          <div style={{ display:"grid", gridTemplateColumns:"minmax(100px,auto) 1fr", gap:"10px 12px", marginTop:10, alignItems:"center" }}>
             {Field("Name", selectedPin.name, <input value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/>)}
             {Field("Venue", selectedPin.venue, <input value={form.venue} onChange={e=>setForm({...form,venue:e.target.value})}/>)}
+            {Field("Street", selectedPin.street, null, true)}
             {Field("City", selectedPin.city, <input value={form.city} onChange={e=>setForm({...form,city:e.target.value})}/>)}
-            {Field("Date", selectedPin.date, <input type="date" value={form.date} onChange={e=>setForm({...form,date:e.target.value})}/>)}
+            {Field("Country", selectedPin.country, null, true)}
             {Field(
               "Hours",
               formatHoursLabel(selectedPin),
@@ -470,19 +562,74 @@ export default function App() {
                 />
               </div>
             )}
-            {Field("Country", selectedPin.country, null, true)}
-            {Field("Street", selectedPin.street, null, true)}
 
-            {Field("People", selectedPin.people,
-              <input type="range" min="0" max="200" value={form.people} onChange={e=>setForm({...form,people:Number(e.target.value)})}/>
-            )}
-
-            {Field("Music", selectedPin.music?.join(", "),
+            <b style={{ alignSelf: "start", paddingTop: 4 }}>Music</b>
+            <div>
               <TagSelector options={MUSIC_OPTIONS} selected={form.music} toggle={(v)=>toggleMulti("music",v)}/>
-            )}
+              <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, fontSize: 13, cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={form.musicShared}
+                  disabled={!editing}
+                  onChange={(e) => setForm({ ...form, musicShared: e.target.checked })}
+                />
+                <span>Shared floor for all musical styles</span>
+              </label>
+            </div>
 
-            {Field("Dance", selectedPin.dance?.join(", "),
-              <TagSelector options={DANCE_OPTIONS} selected={form.dance} toggle={(v)=>toggleMulti("dance",v)}/>
+            <b style={{ alignSelf: "start", paddingTop: 4 }}>Dance</b>
+            <TagSelector options={DANCE_OPTIONS} selected={form.dance} toggle={(v)=>toggleMulti("dance",v)}/>
+
+            {Field("Last visited", selectedPin.date, <input type="date" value={form.date} onChange={e=>setForm({...form,date:e.target.value})}/>)}
+
+            {Field(
+              "Floor size",
+              FLOOR_SIZE_LEVELS.find((l) => l.id === (selectedPin.floorSize || "medium"))?.label ?? "—",
+              <select value={form.floorSize} onChange={(e) => setForm({ ...form, floorSize: e.target.value })}>
+                {FLOOR_SIZE_LEVELS.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.label} (rank {l.rank})
+                  </option>
+                ))}
+              </select>
+            )}
+            {Field(
+              "Density",
+              DENSITY_LEVELS.find((l) => l.id === (selectedPin.density || "sparse"))?.label ?? "—",
+              <select value={form.density} onChange={(e) => setForm({ ...form, density: e.target.value })}>
+                {DENSITY_LEVELS.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.label} (rank {l.rank})
+                  </option>
+                ))}
+              </select>
+            )}
+            {Field(
+              "Floor type",
+              selectedPin.floor,
+              <select value={form.floor} onChange={(e) => setForm({ ...form, floor: e.target.value })}>
+                {FLOOR_TYPE_OPTIONS.map((fl) => (
+                  <option key={fl} value={fl}>{fl}</option>
+                ))}
+              </select>
+            )}
+            {Field(
+              "Type",
+              selectedPin.type,
+              <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
+                {EVENT_TYPE_OPTIONS.map((t) => (
+                  <option key={t} value={t}>{t}</option>
+                ))}
+              </select>
+            )}
+            {Field(
+              "Price",
+              selectedPin.price,
+              <select value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })}>
+                {PRICE_OPTIONS.map((p) => (
+                  <option key={p} value={p}>{p}</option>
+                ))}
+              </select>
             )}
           </div>
 
@@ -493,14 +640,29 @@ export default function App() {
       {/* MODAL */}
       {pendingPin && (
         <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,0.4)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:2000 }}>
-          <div style={{ background:"white", padding:20, borderRadius:16, width:340 }}>
-            <h3>New Event</h3>
+          <div style={{ background:"white", padding:20, borderRadius:16, width:380, maxHeight:"90vh", overflowY:"auto" }}>
+            <h3 style={{ marginTop: 0 }}>New Event</h3>
 
-            <input placeholder="Event name" value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/>
-            <input placeholder="Venue name" value={form.venue} onChange={e=>setForm({...form,venue:e.target.value})}/>
-            <input placeholder="City" value={form.city} onChange={e=>setForm({...form,city:e.target.value})}/>
-            <input type="date" value={form.date} onChange={e=>setForm({...form,date:e.target.value})}/>
-            <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+            <label style={{ fontSize: 12, color: "#64748b" }}>Name</label>
+            <input style={{ width: "100%", boxSizing: "border-box" }} placeholder="Event name" value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/>
+            <label style={{ fontSize: 12, color: "#64748b", marginTop: 8, display: "block" }}>Venue</label>
+            <input style={{ width: "100%", boxSizing: "border-box" }} placeholder="Venue name" value={form.venue} onChange={e=>setForm({...form,venue:e.target.value})}/>
+
+            <div style={{ marginTop: 10, padding: 10, background: "#f8fafc", borderRadius: 8, fontSize: 13 }}>
+              <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.04em", color: "#94a3b8", marginBottom: 6 }}>From map (geocode)</div>
+              {newPinGeoLoading ? (
+                <div style={{ color: "#64748b" }}>Loading…</div>
+              ) : (
+                <>
+                  <div><b style={{ color: "#475569" }}>Street</b> {pendingPin.geo?.street || "—"}</div>
+                  <div><b style={{ color: "#475569" }}>City</b> {pendingPin.geo?.city || "—"}</div>
+                  <div><b style={{ color: "#475569" }}>Country</b> {pendingPin.geo?.country || "—"}</div>
+                </>
+              )}
+            </div>
+
+            <label style={{ fontSize: 12, color: "#64748b", marginTop: 10, display: "block" }}>Hours</label>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
               <span style={{ fontSize: 12, color: "#444" }}>From</span>
               <input type="time" step={300} value={form.hoursStart} onChange={e=>setForm({...form,hoursStart:e.target.value})} aria-label="Start time" />
               <span style={{ fontSize: 12, color: "#444" }}>to</span>
@@ -510,6 +672,14 @@ export default function App() {
             <div style={{ marginTop:10 }}>
               <b>Music</b>
               <TagSelector options={MUSIC_OPTIONS} selected={form.music} toggle={(v)=>toggleMulti("music",v)}/>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, fontSize: 13, cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={form.musicShared}
+                  onChange={(e) => setForm({ ...form, musicShared: e.target.checked })}
+                />
+                <span>Shared floor for all musical styles</span>
+              </label>
             </div>
 
             <div style={{ marginTop:10 }}>
@@ -517,14 +687,47 @@ export default function App() {
               <TagSelector options={DANCE_OPTIONS} selected={form.dance} toggle={(v)=>toggleMulti("dance",v)}/>
             </div>
 
-            <div style={{ marginTop:10 }}>
-              <b>People</b>
-              <input type="range" min="0" max="200" value={form.people} onChange={e=>setForm({...form,people:Number(e.target.value)})}/>
-            </div>
+            <label style={{ fontSize: 12, color: "#64748b", marginTop: 10, display: "block" }}>Date last visited</label>
+            <input type="date" style={{ width: "100%", boxSizing: "border-box" }} value={form.date} onChange={e=>setForm({...form,date:e.target.value})}/>
+
+            <label style={{ fontSize: 12, color: "#64748b", marginTop: 10, display: "block" }}>Floor size</label>
+            <select style={{ width: "100%" }} value={form.floorSize} onChange={(e) => setForm({ ...form, floorSize: e.target.value })}>
+              {FLOOR_SIZE_LEVELS.map((l) => (
+                <option key={l.id} value={l.id}>{l.label} (rank {l.rank})</option>
+              ))}
+            </select>
+
+            <label style={{ fontSize: 12, color: "#64748b", marginTop: 8, display: "block" }}>Density</label>
+            <select style={{ width: "100%" }} value={form.density} onChange={(e) => setForm({ ...form, density: e.target.value })}>
+              {DENSITY_LEVELS.map((l) => (
+                <option key={l.id} value={l.id}>{l.label} (rank {l.rank})</option>
+              ))}
+            </select>
+
+            <label style={{ fontSize: 12, color: "#64748b", marginTop: 8, display: "block" }}>Floor type</label>
+            <select style={{ width: "100%" }} value={form.floor} onChange={(e) => setForm({ ...form, floor: e.target.value })}>
+              {FLOOR_TYPE_OPTIONS.map((fl) => (
+                <option key={fl} value={fl}>{fl}</option>
+              ))}
+            </select>
+
+            <label style={{ fontSize: 12, color: "#64748b", marginTop: 8, display: "block" }}>Type</label>
+            <select style={{ width: "100%" }} value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
+              {EVENT_TYPE_OPTIONS.map((t) => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+
+            <label style={{ fontSize: 12, color: "#64748b", marginTop: 8, display: "block" }}>Price</label>
+            <select style={{ width: "100%" }} value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })}>
+              {PRICE_OPTIONS.map((p) => (
+                <option key={p} value={p}>{p}</option>
+              ))}
+            </select>
 
             <div style={{ marginTop:12, display:"flex", justifyContent:"space-between" }}>
-              <button onClick={()=>setPendingPin(null)}>Cancel</button>
-              <button onClick={savePin}>Save</button>
+              <button type="button" onClick={() => { setPendingPin(null); setNewPinGeoLoading(false); }}>Cancel</button>
+              <button type="button" onClick={savePin}>Save</button>
             </div>
           </div>
         </div>

@@ -33,7 +33,22 @@ const DENSITY_LEVELS = [
 ];
 
 const REGULARITY_TYPE_OPTIONS = ["weekly", "monthly", "one-off/irregular"];
-const REGULARITY_DAY_OPTIONS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+const REGULARITY_DAY_OPTIONS = [
+  { value: "monday", label: "Monday" },
+  { value: "tuesday", label: "Tuesday" },
+  { value: "wednesday", label: "Wednesday" },
+  { value: "thursday", label: "Thursday" },
+  { value: "friday", label: "Friday" },
+  { value: "saturday", label: "Saturday" },
+  { value: "sunday", label: "Sunday" }
+];
+
+function capitalizeWeekday(value) {
+  if (!value) return "";
+  const lower = String(value).toLowerCase();
+  const found = REGULARITY_DAY_OPTIONS.find((d) => d.value === lower);
+  return found ? found.label : value.charAt(0).toUpperCase() + value.slice(1);
+}
 
 function floorSizeRank(id) {
   return FLOOR_SIZE_LEVELS.find((x) => x.id === id)?.rank ?? 0;
@@ -84,8 +99,18 @@ function mergeFormFromPin(pin) {
 
 function formatRegularity(pin) {
   if (!pin.regularityType || pin.regularityType === "one-off/irregular") return "one-off/irregular";
-  if (pin.regularityDay) return `${pin.regularityType} on ${pin.regularityDay}s`;
+  if (pin.regularityDay) return `${pin.regularityType} on ${capitalizeWeekday(pin.regularityDay)}`;
   return pin.regularityType;
+}
+
+function validateRequiredEventFields(form) {
+  const missing = [];
+  if (!String(form.name || "").trim()) missing.push("event name");
+  if (!String(form.venue || "").trim()) missing.push("venue name");
+  if (!form.hoursStart) missing.push("start time");
+  if (!form.hoursEnd) missing.push("end time");
+  if (!form.date) missing.push("last updated date");
+  return missing;
 }
 
 function isDateStaleOverOneYear(isoDate) {
@@ -173,7 +198,9 @@ const FILTER_DEFAULTS = {
   price: "",
   floor: "",
   floorSizeMin: "",
-  densityMax: ""
+  densityMax: "",
+  country: "",
+  city: ""
 };
 
 function filterPins(pins, f) {
@@ -199,6 +226,8 @@ function filterPins(pins, f) {
       const maxR = Number(f.densityMax);
       if (!Number.isNaN(maxR) && densityRank(pin.density || "sparse") > maxR) return false;
     }
+    if (f.country && pin.country !== f.country) return false;
+    if (f.city && pin.city !== f.city) return false;
     return true;
   });
 }
@@ -215,11 +244,32 @@ export default function App() {
   const [mapFocus, setMapFocus] = useState(null);
   const [showTimeline, setShowTimeline] = useState(false);
   const [newPinGeoLoading, setNewPinGeoLoading] = useState(false);
+  const [editSubmitAttempted, setEditSubmitAttempted] = useState(false);
+  const [newSubmitAttempted, setNewSubmitAttempted] = useState(false);
 
   const filteredPins = useMemo(() => filterPins(pins, filters), [pins, filters]);
 
+  const filterCountries = useMemo(
+    () =>
+      [...new Set(pins.map((p) => p.country).filter(Boolean))].sort((a, b) =>
+        a.localeCompare(b, undefined, { sensitivity: "base" })
+      ),
+    [pins]
+  );
+
+  const filterCities = useMemo(() => {
+    const base = filters.country ? pins.filter((p) => p.country === filters.country) : [];
+    return [...new Set(base.map((p) => p.city).filter(Boolean))].sort((a, b) =>
+      a.localeCompare(b, undefined, { sensitivity: "base" })
+    );
+  }, [pins, filters.country]);
+
   function setFilterField(field, value) {
-    setFilters((prev) => ({ ...prev, [field]: value }));
+    setFilters((prev) => {
+      const next = { ...prev, [field]: value };
+      if (field === "country") next.city = "";
+      return next;
+    });
   }
 
   function toggleFilterTag(field, value) {
@@ -234,6 +284,7 @@ export default function App() {
   function handleMapClickForNewPin(payload) {
     if (payload.phase === "start") {
       setNewPinForm({ ...DEFAULT_FORM });
+      setNewSubmitAttempted(false);
       setPendingPin({ lat: payload.lat, lng: payload.lng, geo: null });
       setNewPinGeoLoading(true);
       return;
@@ -265,6 +316,9 @@ export default function App() {
   }
 
   function savePin() {
+    setNewSubmitAttempted(true);
+    const missing = validateRequiredEventFields(newPinForm);
+    if (missing.length) return;
     const g = pendingPin.geo || {};
     const newPin = {
       id: Date.now(),
@@ -279,12 +333,17 @@ export default function App() {
     setPendingPin(null);
     setNewPinGeoLoading(false);
     setNewPinForm({ ...DEFAULT_FORM });
+    setNewSubmitAttempted(false);
   }
 
   function updatePin() {
+    setEditSubmitAttempted(true);
+    const missing = validateRequiredEventFields(editForm);
+    if (missing.length) return;
     setPins(pins.map(p => p.id === selectedPin.id ? { ...p, ...editForm } : p));
     setSelectedPin({ ...selectedPin, ...editForm });
     setEditing(false);
+    setEditSubmitAttempted(false);
   }
 
   function Field(label, value, editor, readOnly=false) {
@@ -299,6 +358,7 @@ export default function App() {
   function openEventFromList(pin) {
     setSelectedPin(pin);
     setEditForm(mergeFormFromPin(pin));
+    setEditSubmitAttempted(false);
     setMapFocus({ id: pin.id, position: pin.position });
   }
 
@@ -341,6 +401,39 @@ export default function App() {
               value={filters.search}
               onChange={(e) => setFilterField("search", e.target.value)}
             />
+
+            <div className="mt-3">
+              <label className="block text-xs font-medium text-slate-500">Country</label>
+              <select
+                className="mt-1 w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm"
+                value={filters.country}
+                onChange={(e) => setFilterField("country", e.target.value)}
+              >
+                <option value="">All countries</option>
+                {filterCountries.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="mt-3">
+              <label className="block text-xs font-medium text-slate-500">City</label>
+              <select
+                className="mt-1 w-full rounded-md border border-slate-200 px-2 py-1.5 text-sm disabled:opacity-50"
+                value={filters.city}
+                onChange={(e) => setFilterField("city", e.target.value)}
+                disabled={!filters.country}
+              >
+                <option value="">{filters.country ? "All cities in country" : "Select a country first"}</option>
+                {filterCities.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </div>
 
             <div className="mt-3">
               <span className="text-xs font-medium text-slate-500">Music (any)</span>
@@ -546,6 +639,7 @@ export default function App() {
                 click: () => {
                   setSelectedPin(p);
                   setEditForm(mergeFormFromPin(p));
+                  setEditSubmitAttempted(false);
                 }
               }}
             />
@@ -561,19 +655,29 @@ export default function App() {
               if (editing) {
                 setEditForm(mergeFormFromPin(selectedPin));
                 setEditing(false);
+                setEditSubmitAttempted(false);
                 return;
               }
               setEditing(true);
+            }}
+            style={{
+              background: "#2563eb",
+              color: "#fff",
+              border: "none",
+              borderRadius: 8,
+              padding: "8px 14px",
+              fontWeight: 600,
+              cursor: "pointer"
             }}
           >
             {editing ? "Cancel" : "Edit"}
           </button>
 
           <div style={{ display:"grid", gridTemplateColumns:"minmax(100px,auto) 1fr", gap:"10px 12px", marginTop:10, alignItems:"center" }}>
-            {Field("Name", selectedPin.name, <input value={editForm.name} onChange={e=>setEditForm({...editForm,name:e.target.value})}/>)}
-            {Field("Venue", selectedPin.venue, <input value={editForm.venue} onChange={e=>setEditForm({...editForm,venue:e.target.value})}/>)}
+            {Field("Name", selectedPin.name, <input required style={editing && editSubmitAttempted && !String(editForm.name || "").trim() ? { borderColor: "#dc2626", background: "#fef2f2" } : undefined} value={editForm.name} onChange={e=>setEditForm({...editForm,name:e.target.value})}/>)}
+            {Field("Venue", selectedPin.venue, <input required style={editing && editSubmitAttempted && !String(editForm.venue || "").trim() ? { borderColor: "#dc2626", background: "#fef2f2" } : undefined} value={editForm.venue} onChange={e=>setEditForm({...editForm,venue:e.target.value})}/>)}
             {Field("Street", selectedPin.street, null, true)}
-            {Field("City", selectedPin.city, <input value={editForm.city} onChange={e=>setEditForm({...editForm,city:e.target.value})}/>)}
+            {Field("City", selectedPin.city, null, true)}
             {Field("Country", selectedPin.country, null, true)}
             {Field(
               "Hours",
@@ -582,6 +686,8 @@ export default function App() {
                 <input
                   type="time"
                   step={300}
+                  required
+                  style={editing && editSubmitAttempted && !editForm.hoursStart ? { borderColor: "#dc2626", background: "#fef2f2" } : undefined}
                   value={editForm.hoursStart}
                   onChange={(e) => setEditForm({ ...editForm, hoursStart: e.target.value })}
                   aria-label="Start time"
@@ -590,6 +696,8 @@ export default function App() {
                 <input
                   type="time"
                   step={300}
+                  required
+                  style={editing && editSubmitAttempted && !editForm.hoursEnd ? { borderColor: "#dc2626", background: "#fef2f2" } : undefined}
                   value={editForm.hoursEnd}
                   onChange={(e) => setEditForm({ ...editForm, hoursEnd: e.target.value })}
                   aria-label="End time"
@@ -600,27 +708,21 @@ export default function App() {
             <b style={{ textAlign: "right", alignSelf: "start", paddingTop: 4 }}>Music</b>
             <div>
               <TagSelector options={MUSIC_OPTIONS} selected={editing ? editForm.music : (selectedPin.music || [])} toggle={(v)=>toggleMulti("music",v)} disabled={!editing}/>
-              <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, fontSize: 13, cursor: editing ? "pointer" : "default" }}>
-                <input
-                  type="checkbox"
-                  checked={editing ? editForm.musicShared : Boolean(selectedPin.musicShared)}
-                  disabled={!editing}
-                  onChange={(e) => setEditForm({ ...editForm, musicShared: e.target.checked })}
-                />
-                <span>Shared floor for all musical styles</span>
-              </label>
+              {(editing ? editForm.music.length : (selectedPin.music || []).length) > 1 ? (
+                <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, fontSize: 13, cursor: editing ? "pointer" : "default" }}>
+                  <input
+                    type="checkbox"
+                    checked={editing ? editForm.musicShared : Boolean(selectedPin.musicShared)}
+                    disabled={!editing}
+                    onChange={(e) => setEditForm({ ...editForm, musicShared: e.target.checked })}
+                  />
+                  <span>Shared floor for all music</span>
+                </label>
+              ) : null}
             </div>
 
             <b style={{ textAlign: "right", alignSelf: "start", paddingTop: 4 }}>Dance</b>
             <TagSelector options={DANCE_OPTIONS} selected={editing ? editForm.dance : (selectedPin.dance || [])} toggle={(v)=>toggleMulti("dance",v)} disabled={!editing}/>
-
-            {Field("Last updated", selectedPin.date, <input type="date" value={editForm.date} onChange={e=>setEditForm({...editForm,date:e.target.value})}/>)}
-            {!editing && isDateStaleOverOneYear(selectedPin.date) ? (
-              <>
-                <b style={{ textAlign: "right", color: "#b45309" }}>Warning</b>
-                <span style={{ color: "#b45309" }}>Information is over 1 year old.</span>
-              </>
-            ) : null}
 
             {Field(
               "Floor size",
@@ -656,56 +758,52 @@ export default function App() {
                 <select
                   value={editForm.regularityDay}
                   onChange={(e) => setEditForm({ ...editForm, regularityDay: e.target.value })}
-                  disabled={editForm.regularityType === "one-off/irregular"}
                 >
                   <option value="">no fixed day</option>
                   {REGULARITY_DAY_OPTIONS.map((day) => (
-                    <option key={day} value={day}>{day}</option>
+                    <option key={day.value} value={day.value}>{day.label}</option>
                   ))}
                 </select>
               </div>
             )}
-            {Field(
-              "Floor type",
-              selectedPin.floor,
-              <select value={editForm.floor} onChange={(e) => setEditForm({ ...editForm, floor: e.target.value })}>
-                {FLOOR_TYPE_OPTIONS.map((fl) => (
-                  <option key={fl} value={fl}>{fl}</option>
-                ))}
-              </select>
-            )}
-            <b style={{ textAlign: "right", alignSelf: "start", color: (selectedPin.glassOnFloor || selectedPin.beerOnFloor) ? "#b45309" : "inherit" }}>
-              Warnings
-            </b>
-            {editing ? (
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <input
-                    type="checkbox"
-                    checked={Boolean(editForm.glassOnFloor)}
-                    onChange={(e) => setEditForm({ ...editForm, glassOnFloor: e.target.checked })}
-                  />
-                  <span>glass on floor</span>
-                </label>
-                <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <input
-                    type="checkbox"
-                    checked={Boolean(editForm.beerOnFloor)}
-                    onChange={(e) => setEditForm({ ...editForm, beerOnFloor: e.target.checked })}
-                  />
-                  <span>beer on floor</span>
-                </label>
-              </div>
-            ) : (
-              <span style={{ color: (selectedPin.glassOnFloor || selectedPin.beerOnFloor) ? "#b45309" : "#334155" }}>
-                {selectedPin.glassOnFloor || selectedPin.beerOnFloor
-                  ? [
-                      selectedPin.glassOnFloor ? "glass on floor" : null,
-                      selectedPin.beerOnFloor ? "beer on floor" : null
-                    ].filter(Boolean).join(" · ")
-                  : "none"}
-              </span>
-            )}
+            <b style={{ textAlign: "right", alignSelf: "start" }}>Floor type</b>
+            <div>
+              {editing ? (
+                <>
+                  <select value={editForm.floor} onChange={(e) => setEditForm({ ...editForm, floor: e.target.value })}>
+                    {FLOOR_TYPE_OPTIONS.map((fl) => (
+                      <option key={fl} value={fl}>{fl}</option>
+                    ))}
+                  </select>
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, fontSize: 13 }}>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(editForm.glassOnFloor)}
+                      onChange={(e) => setEditForm({ ...editForm, glassOnFloor: e.target.checked })}
+                    />
+                    <span>glass on floor</span>
+                  </label>
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4, fontSize: 13 }}>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(editForm.beerOnFloor)}
+                      onChange={(e) => setEditForm({ ...editForm, beerOnFloor: e.target.checked })}
+                    />
+                    <span>beer on floor</span>
+                  </label>
+                </>
+              ) : (
+                <>
+                  <span>{selectedPin.floor || "—"}</span>
+                  {(selectedPin.glassOnFloor || selectedPin.beerOnFloor) ? (
+                    <div style={{ fontSize: 11, color: "#b45309", marginTop: 4, lineHeight: 1.35 }}>
+                      {selectedPin.glassOnFloor ? <div>⚠️ glass on floor</div> : null}
+                      {selectedPin.beerOnFloor ? <div>⚠️ beer on floor</div> : null}
+                    </div>
+                  ) : null}
+                </>
+              )}
+            </div>
             {Field(
               "Type",
               selectedPin.type,
@@ -724,6 +822,34 @@ export default function App() {
                 ))}
               </select>
             )}
+            <b style={{ textAlign: "right", alignSelf: "start" }}>Last updated</b>
+            <div>
+              {!editing ? (
+                <>
+                  <span>{selectedPin.date || "—"}</span>
+                  {isDateStaleOverOneYear(selectedPin.date) ? (
+                    <div style={{ fontSize: 11, color: "#b45309", marginTop: 4, lineHeight: 1.35 }}>
+                      ⚠️ Info may be stale (over a year old).
+                    </div>
+                  ) : null}
+                </>
+              ) : (
+                <div>
+                  <input
+                    type="date"
+                    required
+                    style={editSubmitAttempted && !editForm.date ? { borderColor: "#dc2626", background: "#fef2f2" } : undefined}
+                    value={editForm.date}
+                    onChange={e=>setEditForm({...editForm,date:e.target.value})}
+                  />
+                  {isDateStaleOverOneYear(editForm.date) ? (
+                    <div style={{ fontSize: 11, color: "#b45309", marginTop: 4, lineHeight: 1.35 }}>
+                      ⚠️ Information may be stale (over 1 year ago).
+                    </div>
+                  ) : null}
+                </div>
+              )}
+            </div>
             {Field(
               "URL",
               selectedPin.url,
@@ -736,20 +862,48 @@ export default function App() {
             )}
           </div>
 
-          {editing && <button style={{ marginTop:10 }} onClick={updatePin}>Save</button>}
+          {editing && (
+            <button
+              style={{ marginTop:10, background:"#2563eb", color:"#fff", border:"none", borderRadius:8, padding:"8px 14px", fontWeight:600, cursor:"pointer" }}
+              onClick={updatePin}
+            >
+              Save
+            </button>
+          )}
         </div>
       )}
 
       {/* MODAL */}
       {pendingPin && (
         <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,0.4)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:2000 }}>
-          <div style={{ background:"white", padding:20, borderRadius:16, width:380, maxHeight:"90vh", overflowY:"auto" }}>
+          <div
+            style={{
+              background: "white",
+              borderRadius: 16,
+              width: 380,
+              maxHeight: "94vh",
+              display: "flex",
+              flexDirection: "column",
+              overflow: "hidden",
+              boxShadow: "0 25px 50px -12px rgba(0,0,0,0.25)"
+            }}
+          >
+            <div
+              style={{
+                flex: 1,
+                minHeight: 0,
+                maxHeight: "min(76vh, 760px)",
+                overflowY: "auto",
+                padding: 20,
+                paddingBottom: 12
+              }}
+            >
             <h3 style={{ marginTop: 0 }}>New Event</h3>
 
             <label style={{ fontSize: 12, color: "#64748b" }}>Name</label>
-            <input style={{ width: "100%", boxSizing: "border-box" }} placeholder="Event name" value={newPinForm.name} onChange={e=>setNewPinForm({...newPinForm,name:e.target.value})}/>
+            <input required style={{ width: "100%", boxSizing: "border-box", ...(newSubmitAttempted && !String(newPinForm.name || "").trim() ? { borderColor: "#dc2626", background: "#fef2f2" } : {}) }} placeholder="Event name" value={newPinForm.name} onChange={e=>setNewPinForm({...newPinForm,name:e.target.value})}/>
             <label style={{ fontSize: 12, color: "#64748b", marginTop: 8, display: "block" }}>Venue</label>
-            <input style={{ width: "100%", boxSizing: "border-box" }} placeholder="Venue name" value={newPinForm.venue} onChange={e=>setNewPinForm({...newPinForm,venue:e.target.value})}/>
+            <input required style={{ width: "100%", boxSizing: "border-box", ...(newSubmitAttempted && !String(newPinForm.venue || "").trim() ? { borderColor: "#dc2626", background: "#fef2f2" } : {}) }} placeholder="Venue name" value={newPinForm.venue} onChange={e=>setNewPinForm({...newPinForm,venue:e.target.value})}/>
 
             <div style={{ marginTop: 10, padding: 10, background: "#f8fafc", borderRadius: 8, fontSize: 13 }}>
               <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.04em", color: "#94a3b8", marginBottom: 6 }}>From map (geocode)</div>
@@ -767,31 +921,30 @@ export default function App() {
             <label style={{ fontSize: 12, color: "#64748b", marginTop: 10, display: "block" }}>Hours</label>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
               <span style={{ fontSize: 12, color: "#444" }}>From</span>
-              <input type="time" step={300} value={newPinForm.hoursStart} onChange={e=>setNewPinForm({...newPinForm,hoursStart:e.target.value})} aria-label="Start time" />
+              <input required type="time" step={300} style={newSubmitAttempted && !newPinForm.hoursStart ? { borderColor: "#dc2626", background: "#fef2f2" } : undefined} value={newPinForm.hoursStart} onChange={e=>setNewPinForm({...newPinForm,hoursStart:e.target.value})} aria-label="Start time" />
               <span style={{ fontSize: 12, color: "#444" }}>to</span>
-              <input type="time" step={300} value={newPinForm.hoursEnd} onChange={e=>setNewPinForm({...newPinForm,hoursEnd:e.target.value})} aria-label="End time" />
+              <input required type="time" step={300} style={newSubmitAttempted && !newPinForm.hoursEnd ? { borderColor: "#dc2626", background: "#fef2f2" } : undefined} value={newPinForm.hoursEnd} onChange={e=>setNewPinForm({...newPinForm,hoursEnd:e.target.value})} aria-label="End time" />
             </div>
 
             <div style={{ marginTop:10 }}>
               <b>Music</b>
               <TagSelector options={MUSIC_OPTIONS} selected={newPinForm.music} toggle={(v)=>toggleNewPinMulti("music",v)}/>
-              <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, fontSize: 13, cursor: "pointer" }}>
-                <input
-                  type="checkbox"
-                  checked={newPinForm.musicShared}
-                  onChange={(e) => setNewPinForm({ ...newPinForm, musicShared: e.target.checked })}
-                />
-                <span>Shared floor for all musical styles</span>
-              </label>
+              {newPinForm.music.length > 1 ? (
+                <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, fontSize: 13, cursor: "pointer" }}>
+                  <input
+                    type="checkbox"
+                    checked={newPinForm.musicShared}
+                    onChange={(e) => setNewPinForm({ ...newPinForm, musicShared: e.target.checked })}
+                  />
+                  <span>Shared floor for all musical styles</span>
+                </label>
+              ) : null}
             </div>
 
             <div style={{ marginTop:10 }}>
               <b>Dance</b>
               <TagSelector options={DANCE_OPTIONS} selected={newPinForm.dance} toggle={(v)=>toggleNewPinMulti("dance",v)}/>
             </div>
-
-            <label style={{ fontSize: 12, color: "#64748b", marginTop: 10, display: "block" }}>Date last updated</label>
-            <input type="date" style={{ width: "100%", boxSizing: "border-box" }} value={newPinForm.date} onChange={e=>setNewPinForm({...newPinForm,date:e.target.value})}/>
 
             <label style={{ fontSize: 12, color: "#64748b", marginTop: 10, display: "block" }}>Floor size</label>
             <select style={{ width: "100%" }} value={newPinForm.floorSize} onChange={(e) => setNewPinForm({ ...newPinForm, floorSize: e.target.value })}>
@@ -818,11 +971,10 @@ export default function App() {
                 style={{ width: "45%" }}
                 value={newPinForm.regularityDay}
                 onChange={(e) => setNewPinForm({ ...newPinForm, regularityDay: e.target.value })}
-                disabled={newPinForm.regularityType === "one-off/irregular"}
               >
                 <option value="">no fixed day</option>
                 {REGULARITY_DAY_OPTIONS.map((day) => (
-                  <option key={day} value={day}>{day}</option>
+                  <option key={day.value} value={day.value}>{day.label}</option>
                 ))}
               </select>
             </div>
@@ -863,6 +1015,8 @@ export default function App() {
                 <option key={p} value={p}>{p}</option>
               ))}
             </select>
+            <label style={{ fontSize: 12, color: "#64748b", marginTop: 8, display: "block" }}>Date last updated</label>
+            <input required type="date" style={{ width: "100%", boxSizing: "border-box", ...(newSubmitAttempted && !newPinForm.date ? { borderColor: "#dc2626", background: "#fef2f2" } : {}) }} value={newPinForm.date} onChange={e=>setNewPinForm({...newPinForm,date:e.target.value})}/>
             <label style={{ fontSize: 12, color: "#64748b", marginTop: 8, display: "block" }}>URL (optional)</label>
             <input
               type="url"
@@ -872,9 +1026,50 @@ export default function App() {
               onChange={(e)=>setNewPinForm({...newPinForm,url:e.target.value})}
             />
 
-            <div style={{ marginTop:12, display:"flex", justifyContent:"space-between" }}>
-              <button type="button" onClick={() => { setPendingPin(null); setNewPinGeoLoading(false); }}>Cancel</button>
-              <button type="button" onClick={savePin}>Save</button>
+            </div>
+            <div
+              style={{
+                flexShrink: 0,
+                borderTop: "1px solid #e2e8f0",
+                padding: "12px 20px",
+                display: "flex",
+                justifyContent: "space-between",
+                gap: 12,
+                background: "#f8fafc"
+              }}
+            >
+              <button
+                type="button"
+                style={{
+                  padding: "10px 18px",
+                  borderRadius: 8,
+                  border: "none",
+                  background: "#2563eb",
+                  color: "#fff",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  fontSize: 14
+                }}
+                onClick={() => { setPendingPin(null); setNewPinGeoLoading(false); setNewSubmitAttempted(false); }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                style={{
+                  padding: "10px 18px",
+                  borderRadius: 8,
+                  border: "none",
+                  background: "#2563eb",
+                  color: "#fff",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  fontSize: 14
+                }}
+                onClick={savePin}
+              >
+                Save
+              </button>
             </div>
           </div>
         </div>

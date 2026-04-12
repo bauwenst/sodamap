@@ -13,7 +13,7 @@ if (typeof window !== "undefined") {
 }
 
 const MUSIC_OPTIONS = ["salsa", "timba", "son", "bachata", "kizomba", "merengue", "zouk"];
-const DANCE_OPTIONS = ["casino", "salsa on1", "salsa on2", "bachata", "zouk"];
+const DANCE_OPTIONS = ["casino", "salsa on1", "salsa on2", "bachata moderna", "bachata sensual", "kizomba", "zouk"];
 const EVENT_TYPE_OPTIONS = ["social", "event", "festival"];
 const PRICE_OPTIONS = ["free", "paid"];
 /** Surface / how it dances (floor type) */
@@ -675,6 +675,15 @@ export default function App() {
 
           <div style={{ display:"grid", gridTemplateColumns:"minmax(100px,auto) 1fr", gap:"10px 12px", marginTop:10, alignItems:"center" }}>
             {Field("Name", selectedPin.name, <input required style={editing && editSubmitAttempted && !String(editForm.name || "").trim() ? { borderColor: "#dc2626", background: "#fef2f2" } : undefined} value={editForm.name} onChange={e=>setEditForm({...editForm,name:e.target.value})}/>)}
+            {Field(
+              "Type",
+              selectedPin.type,
+              <select value={editForm.type} onChange={(e) => setEditForm({ ...editForm, type: e.target.value })}>
+                {EVENT_TYPE_OPTIONS.map((t) => (
+                  <option key={t} value={t}>{t}</option>
+                ))}
+              </select>
+            )}
             {Field("Venue", selectedPin.venue, <input required style={editing && editSubmitAttempted && !String(editForm.venue || "").trim() ? { borderColor: "#dc2626", background: "#fef2f2" } : undefined} value={editForm.venue} onChange={e=>setEditForm({...editForm,venue:e.target.value})}/>)}
             {Field("Street", selectedPin.street, null, true)}
             {Field("City", selectedPin.city, null, true)}
@@ -702,6 +711,26 @@ export default function App() {
                   onChange={(e) => setEditForm({ ...editForm, hoursEnd: e.target.value })}
                   aria-label="End time"
                 />
+              </div>
+            )}
+            {Field(
+              "Regularity",
+              formatRegularity(selectedPin),
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                <select value={editForm.regularityType} onChange={(e) => setEditForm({ ...editForm, regularityType: e.target.value })}>
+                  {REGULARITY_TYPE_OPTIONS.map((opt) => (
+                    <option key={opt} value={opt}>{opt}</option>
+                  ))}
+                </select>
+                <select
+                  value={editForm.regularityDay}
+                  onChange={(e) => setEditForm({ ...editForm, regularityDay: e.target.value })}
+                >
+                  <option value="">no fixed day</option>
+                  {REGULARITY_DAY_OPTIONS.map((day) => (
+                    <option key={day.value} value={day.value}>{day.label}</option>
+                  ))}
+                </select>
               </div>
             )}
 
@@ -734,37 +763,6 @@ export default function App() {
                   </option>
                 ))}
               </select>
-            )}
-            {Field(
-              "Density",
-              DENSITY_LEVELS.find((l) => l.id === (selectedPin.density || "sparse"))?.label ?? "—",
-              <select value={editForm.density} onChange={(e) => setEditForm({ ...editForm, density: e.target.value })}>
-                {DENSITY_LEVELS.map((l) => (
-                  <option key={l.id} value={l.id}>
-                    {l.label}
-                  </option>
-                ))}
-              </select>
-            )}
-            {Field(
-              "Regularity",
-              formatRegularity(selectedPin),
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                <select value={editForm.regularityType} onChange={(e) => setEditForm({ ...editForm, regularityType: e.target.value })}>
-                  {REGULARITY_TYPE_OPTIONS.map((opt) => (
-                    <option key={opt} value={opt}>{opt}</option>
-                  ))}
-                </select>
-                <select
-                  value={editForm.regularityDay}
-                  onChange={(e) => setEditForm({ ...editForm, regularityDay: e.target.value })}
-                >
-                  <option value="">no fixed day</option>
-                  {REGULARITY_DAY_OPTIONS.map((day) => (
-                    <option key={day.value} value={day.value}>{day.label}</option>
-                  ))}
-                </select>
-              </div>
             )}
             <b style={{ textAlign: "right", alignSelf: "start" }}>Floor type</b>
             <div>
@@ -805,11 +803,13 @@ export default function App() {
               )}
             </div>
             {Field(
-              "Type",
-              selectedPin.type,
-              <select value={editForm.type} onChange={(e) => setEditForm({ ...editForm, type: e.target.value })}>
-                {EVENT_TYPE_OPTIONS.map((t) => (
-                  <option key={t} value={t}>{t}</option>
+              "Density",
+              DENSITY_LEVELS.find((l) => l.id === (selectedPin.density || "sparse"))?.label ?? "—",
+              <select value={editForm.density} onChange={(e) => setEditForm({ ...editForm, density: e.target.value })}>
+                {DENSITY_LEVELS.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.label}
+                  </option>
                 ))}
               </select>
             )}
@@ -822,7 +822,7 @@ export default function App() {
                 ))}
               </select>
             )}
-            <b style={{ textAlign: "right", alignSelf: "start" }}>Last updated</b>
+            <b style={{ textAlign: "right", alignSelf: "start" }}>Last verified</b>
             <div>
               {!editing ? (
                 <>
@@ -902,6 +902,18 @@ export default function App() {
 
             <label style={{ fontSize: 12, color: "#64748b" }}>Name</label>
             <input required style={{ width: "100%", boxSizing: "border-box", ...(newSubmitAttempted && !String(newPinForm.name || "").trim() ? { borderColor: "#dc2626", background: "#fef2f2" } : {}) }} placeholder="Event name" value={newPinForm.name} onChange={e=>setNewPinForm({...newPinForm,name:e.target.value})}/>
+
+            <label style={{ fontSize: 12, color: "#64748b", marginTop: 8, display: "block" }}>Type</label>
+            <select style={{ width: "100%" }} value={newPinForm.type} onChange={(e) => setNewPinForm({ ...newPinForm, type: e.target.value })}>
+              {EVENT_TYPE_OPTIONS.map((t) => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+
+            <div style={{ marginTop:10 }}>
+              <b>Place and Time</b>
+            </div>
+
             <label style={{ fontSize: 12, color: "#64748b", marginTop: 8, display: "block" }}>Venue</label>
             <input required style={{ width: "100%", boxSizing: "border-box", ...(newSubmitAttempted && !String(newPinForm.venue || "").trim() ? { borderColor: "#dc2626", background: "#fef2f2" } : {}) }} placeholder="Venue name" value={newPinForm.venue} onChange={e=>setNewPinForm({...newPinForm,venue:e.target.value})}/>
 
@@ -926,6 +938,25 @@ export default function App() {
               <input required type="time" step={300} style={newSubmitAttempted && !newPinForm.hoursEnd ? { borderColor: "#dc2626", background: "#fef2f2" } : undefined} value={newPinForm.hoursEnd} onChange={e=>setNewPinForm({...newPinForm,hoursEnd:e.target.value})} aria-label="End time" />
             </div>
 
+            <label style={{ fontSize: 12, color: "#64748b", marginTop: 8, display: "block" }}>Regularity</label>
+            <div style={{ display: "flex", gap: 8 }}>
+              <select style={{ width: "55%" }} value={newPinForm.regularityType} onChange={(e) => setNewPinForm({ ...newPinForm, regularityType: e.target.value })}>
+                {REGULARITY_TYPE_OPTIONS.map((opt) => (
+                  <option key={opt} value={opt}>{opt}</option>
+                ))}
+              </select>
+              <select
+                style={{ width: "45%" }}
+                value={newPinForm.regularityDay}
+                onChange={(e) => setNewPinForm({ ...newPinForm, regularityDay: e.target.value })}
+              >
+                <option value="">no fixed day</option>
+                {REGULARITY_DAY_OPTIONS.map((day) => (
+                  <option key={day.value} value={day.value}>{day.label}</option>
+                ))}
+              </select>
+            </div>
+
             <div style={{ marginTop:10 }}>
               <b>Music</b>
               <TagSelector options={MUSIC_OPTIONS} selected={newPinForm.music} toggle={(v)=>toggleNewPinMulti("music",v)}/>
@@ -946,45 +977,24 @@ export default function App() {
               <TagSelector options={DANCE_OPTIONS} selected={newPinForm.dance} toggle={(v)=>toggleNewPinMulti("dance",v)}/>
             </div>
 
-            <label style={{ fontSize: 12, color: "#64748b", marginTop: 10, display: "block" }}>Floor size</label>
-            <select style={{ width: "100%" }} value={newPinForm.floorSize} onChange={(e) => setNewPinForm({ ...newPinForm, floorSize: e.target.value })}>
-              {FLOOR_SIZE_LEVELS.map((l) => (
-                <option key={l.id} value={l.id}>{l.label}</option>
-              ))}
-            </select>
 
-            <label style={{ fontSize: 12, color: "#64748b", marginTop: 8, display: "block" }}>Density</label>
-            <select style={{ width: "100%" }} value={newPinForm.density} onChange={(e) => setNewPinForm({ ...newPinForm, density: e.target.value })}>
-              {DENSITY_LEVELS.map((l) => (
-                <option key={l.id} value={l.id}>{l.label}</option>
-              ))}
-            </select>
-
-            <label style={{ fontSize: 12, color: "#64748b", marginTop: 8, display: "block" }}>Regularity</label>
             <div style={{ display: "flex", gap: 8 }}>
-              <select style={{ width: "55%" }} value={newPinForm.regularityType} onChange={(e) => setNewPinForm({ ...newPinForm, regularityType: e.target.value })}>
-                {REGULARITY_TYPE_OPTIONS.map((opt) => (
-                  <option key={opt} value={opt}>{opt}</option>
+              <label style={{ fontSize: 12, color: "#64748b", marginTop: 8, display: "block", width: "50%" }}>Floor size</label>
+              <label style={{ fontSize: 12, color: "#64748b", marginTop: 8, display: "block", width: "50%" }}>Floor type</label>
+            </div>
+
+            <div style={{ display: "flex", gap: 8 }}>
+              <select style={{ width: "50%" }} value={newPinForm.floorSize} onChange={(e) => setNewPinForm({ ...newPinForm, floorSize: e.target.value })}>
+                {FLOOR_SIZE_LEVELS.map((l) => (
+                  <option key={l.id} value={l.id}>{l.label}</option>
                 ))}
               </select>
-              <select
-                style={{ width: "45%" }}
-                value={newPinForm.regularityDay}
-                onChange={(e) => setNewPinForm({ ...newPinForm, regularityDay: e.target.value })}
-              >
-                <option value="">no fixed day</option>
-                {REGULARITY_DAY_OPTIONS.map((day) => (
-                  <option key={day.value} value={day.value}>{day.label}</option>
+              <select style={{ width: "50%" }} value={newPinForm.floor} onChange={(e) => setNewPinForm({ ...newPinForm, floor: e.target.value })}>
+                {FLOOR_TYPE_OPTIONS.map((fl) => (
+                  <option key={fl} value={fl}>{fl}</option>
                 ))}
               </select>
             </div>
-
-            <label style={{ fontSize: 12, color: "#64748b", marginTop: 8, display: "block" }}>Floor type</label>
-            <select style={{ width: "100%" }} value={newPinForm.floor} onChange={(e) => setNewPinForm({ ...newPinForm, floor: e.target.value })}>
-              {FLOOR_TYPE_OPTIONS.map((fl) => (
-                <option key={fl} value={fl}>{fl}</option>
-              ))}
-            </select>
             <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, fontSize: 13 }}>
               <input
                 type="checkbox"
@@ -1002,10 +1012,10 @@ export default function App() {
               <span>beer on floor</span>
             </label>
 
-            <label style={{ fontSize: 12, color: "#64748b", marginTop: 8, display: "block" }}>Type</label>
-            <select style={{ width: "100%" }} value={newPinForm.type} onChange={(e) => setNewPinForm({ ...newPinForm, type: e.target.value })}>
-              {EVENT_TYPE_OPTIONS.map((t) => (
-                <option key={t} value={t}>{t}</option>
+            <label style={{ fontSize: 12, color: "#64748b", marginTop: 8, display: "block" }}>Density</label>
+            <select style={{ width: "100%" }} value={newPinForm.density} onChange={(e) => setNewPinForm({ ...newPinForm, density: e.target.value })}>
+              {DENSITY_LEVELS.map((l) => (
+                <option key={l.id} value={l.id}>{l.label}</option>
               ))}
             </select>
 
@@ -1015,9 +1025,9 @@ export default function App() {
                 <option key={p} value={p}>{p}</option>
               ))}
             </select>
-            <label style={{ fontSize: 12, color: "#64748b", marginTop: 8, display: "block" }}>Date last updated</label>
+            <label style={{ fontSize: 12, color: "#64748b", marginTop: 8, display: "block" }}>Date verified</label>
             <input required type="date" style={{ width: "100%", boxSizing: "border-box", ...(newSubmitAttempted && !newPinForm.date ? { borderColor: "#dc2626", background: "#fef2f2" } : {}) }} value={newPinForm.date} onChange={e=>setNewPinForm({...newPinForm,date:e.target.value})}/>
-            <label style={{ fontSize: 12, color: "#64748b", marginTop: 8, display: "block" }}>URL (optional)</label>
+            <label style={{ fontSize: 12, color: "#64748b", marginTop: 8, display: "block" }}>URL for reference</label>
             <input
               type="url"
               style={{ width: "100%", boxSizing: "border-box" }}
